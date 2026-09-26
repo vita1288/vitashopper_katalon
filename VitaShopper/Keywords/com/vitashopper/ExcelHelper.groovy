@@ -4,7 +4,6 @@ import com.kms.katalon.core.configuration.RunConfiguration
 import com.kms.katalon.core.util.KeywordUtil
 
 import org.apache.poi.ss.usermodel.Cell
-import org.apache.poi.ss.usermodel.CellType
 import org.apache.poi.ss.usermodel.DataFormatter
 import org.apache.poi.ss.usermodel.DateUtil
 import org.apache.poi.ss.usermodel.FormulaEvaluator
@@ -18,7 +17,7 @@ import internal.GlobalVariable
 /**
  * Excel read/write for test data (.xlsx / .xls).
  * File: <ProjectDir>/<GlobalVariable.testDataFile>. Row 1 = header.
- * Close the file in Excel before running, otherwise write-back is skipped.
+ * Close the file in Excel before running, otherwise write-back fails.
  */
 class ExcelHelper {
 
@@ -41,14 +40,25 @@ class ExcelHelper {
 		return sh
 	}
 
-	/** Cell as text: formulas evaluated, numbers without scientific notation or ".0". */
+	/**
+	 * Cell as text: formulas evaluated, numbers without scientific notation or ".0".
+	 * Works with every Apache POI version bundled in Katalon (no CellType dependency).
+	 */
 	private static String cellText(Cell c, FormulaEvaluator ev) {
 		if (c == null) return ''
-		CellType type = c.getCellType() == CellType.FORMULA ? ev.evaluateFormulaCell(c) : c.getCellType()
-		if (type == CellType.NUMERIC && !DateUtil.isCellDateFormatted(c)) {
-			return BigDecimal.valueOf(c.getNumericCellValue()).stripTrailingZeros().toPlainString()
+		String formatted = FMT.formatCellValue(c, ev).trim()
+		if (formatted.isEmpty()) return ''
+
+		// Numeric cell (or numeric formula result): plain digits, e.g. 628123456789 not 6.28123E+11
+		try {
+			double d = c.getNumericCellValue()
+			if (!DateUtil.isCellDateFormatted(c)) {
+				return BigDecimal.valueOf(d).stripTrailingZeros().toPlainString()
+			}
+		} catch (IllegalStateException ignored) {
+			// text / boolean cell -> keep formatted value
 		}
-		return FMT.formatCellValue(c, ev).trim()
+		return formatted
 	}
 
 	private static List<String> headers(Sheet sh) {
@@ -120,8 +130,11 @@ class ExcelHelper {
 		return null
 	}
 
-	/** Writes values into the given row by header name; creates the column if missing. */
-	static synchronized void writeValues(String sheetName, int rowIndex, Map<String, String> values) {
+	/**
+	 * Writes values into the given row by header name; creates the column if missing.
+	 * Returns true only if the file was saved AND re-reading the file confirms the values.
+	 */
+	static synchronized boolean writeValues(String sheetName, int rowIndex, Map<String, String> values) {
 		try {
 			Workbook wb = open()
 			try {
@@ -138,14 +151,43 @@ class ExcelHelper {
 					(row.getCell(col) ?: row.createCell(col)).setCellValue(val ?: '')
 				}
 				file().withOutputStream { wb.write(it) }
-				KeywordUtil.logInfo("Excel updated '${sheetName}' row ${rowIndex + 1}: ${values}")
 			} finally {
 				wb.close()
 			}
+
+			// Verify: re-read the row from disk and compare
+			Map<String, String> saved = readSheet(sheetName).find { it['_rowIndex'] == rowIndex.toString() }
+			boolean ok = saved != null && values.every { k, v ->
+				(get(saved, false, k) ?: '').trim() == (v ?: '').trim()
+			}
+
+			if (ok) {
+				KeywordUtil.logInfo("Excel updated '${sheetName}' row ${rowIndex + 1}: ${values}")
+			} else {
+				KeywordUtil.markWarning("Excel saved but values NOT confirmed for '${sheetName}' row ${rowIndex + 1}. " +
+						"File: ${file().absolutePath}")
+			}
+			return ok
+
 		} catch (IOException e) {
-			KeywordUtil.markWarning("Excel write-back skipped - close the file in Excel first: ${e.message}")
+			KeywordUtil.markWarning("Excel write-back FAILED (file open in Excel / locked?): ${file().absolutePath} - ${e.message}")
+			return false
 		} catch (Exception e) {
-			KeywordUtil.markWarning("Excel write-back failed: ${e.class.simpleName}: ${e.message}")
+			KeywordUtil.markWarning("Excel write-back FAILED: ${e.class.simpleName}: ${e.message}")
+			return false
 		}
+	}
+
+	/** writeValues with automatic retry (e.g. file briefly locked). Returns true once confirmed. */
+	static boolean writeValuesWithRetry(String sheetName, int rowIndex, Map<String, String> values, int attempts = 3) {
+		for (int i = 1; i <= attempts; i++) {
+			if (writeValues(sheetName, rowIndex, values)) return true
+			if (i < attempts) {
+				KeywordUtil.logInfo("Excel write attempt ${i}/${attempts} failed, retrying in 2s...")
+				Thread.sleep(2000)
+			}
+		}
+		KeywordUtil.markWarning("Excel write failed after ${attempts} attempts for '${sheetName}' row ${rowIndex + 1}")
+		return false
 	}
 }
