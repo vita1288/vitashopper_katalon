@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GlobalVariableEntities>
+   <description></description>
+   <name>default</name>
+   <tag></tag>
+   <defaultProfile>true</defaultProfile>
+   <GlobalVariableEntity>
+      <description>Backoffice base URL</description>
+      <initValue>'https://backoffice-vitashopper.com'</initValue>
+      <name>baseUrl</name>
+   </GlobalVariableEntity>
+   <GlobalVariableEntity>
+      <description>Test data Excel path, relative to project directory</description>
+      <initValue>'Data Files/vitashopper_testdata.xlsx'</initValue>
+      <name>testDataFile</name>
+   </GlobalVariableEntity>
+   <GlobalVariableEntity>
+      <description>Kode Customer used when the list is empty</description>
+      <initValue>'C0001'</initValue>
+      <name>defaultKode</name>
+   </GlobalVariableEntity>
+</GlobalVariableEntities>

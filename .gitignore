@@ -1,0 +1,17 @@
+# Katalon Studio ignored files and directories
+bin/
+Libs/
+.cache/
+.classpath
+.project
+settings/site_settings/
+settings/internal/
+Reports/
+*.log
+*.lck
+*.class
+*.rar
+*.zip
+TempTestCase*
+TempTestSuite*
+.DS_Store
